@@ -1,0 +1,17 @@
+{
+    "name": "petrovich/petrovich-php",
+    "description": "Russian name inflection and gender detection for PHP 8",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.0",
+        "ext-mbstring": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "classmap": ["Petrovich.php", "Trait/Petrovich.php"]
+    },
+    "scripts": {
+        "test": "@php tests/run.php"
+    }
+}

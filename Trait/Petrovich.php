@@ -1,66 +1,49 @@
 <?php
 
-trait Trait_Petrovich {
+declare(strict_types=1);
 
-    public $firstname; // Александр
-    public $middlename; // Сергеевич
-    public $lastname; // Пушкин
-    
+trait Trait_Petrovich
+{
+    // Untyped public properties retained for compatibility with existing models.
+    public $firstname;
+    public $middlename;
+    public $lastname;
     public $gender;
-    
-	private $petrovich;
 
-    /**
-     * Задаём имя и слоняем его
-     *
-     * @param $case
-     * @return bool|string
-     * @throws \ErrorException
-     */
-    public function firstname($case = Petrovich::CASE_NOMENATIVE) {
+    private ?Petrovich $petrovich = null;
+    private ?int $petrovichGender = null;
+
+    private function petrovichInstance(): Petrovich
+    {
+        $gender = $this->gender ?? Petrovich::GENDER_ANDROGYNOUS;
+        if ($this->petrovich === null || $this->petrovichGender !== $gender) {
+            $this->petrovich = new Petrovich($gender);
+            $this->petrovichGender = $gender;
+        }
+        return $this->petrovich;
+    }
+
+    public function firstname(int $case = Petrovich::CASE_NOMENATIVE): ?string
+    {
         if ($case === Petrovich::CASE_NOMENATIVE) {
             return $this->firstname;
         }
-
-        if (!isset($this->petrovich))
-            $this->petrovich = new Petrovich($this->gender);
-
-        return $this->petrovich->firstname($this->firstname,$case);
+        return $this->petrovichInstance()->firstname($this->firstname ?? '', $case);
     }
 
-    /**
-     * Задём отчество и склоняем его
-     *
-     * @param $case
-     * @return bool|string
-     * @throws \ErrorException
-     */
-    public function middlename($case = Petrovich::CASE_NOMENATIVE) {
+    public function middlename(int $case = Petrovich::CASE_NOMENATIVE): ?string
+    {
         if ($case === Petrovich::CASE_NOMENATIVE) {
             return $this->middlename;
         }
-
-        if (!isset($this->petrovich))
-            $this->petrovich = new Petrovich($this->gender);
-
-        return $this->petrovich->middlename($this->middlename,$case);
+        return $this->petrovichInstance()->middlename($this->middlename ?? '', $case);
     }
 
-    /**
-     * Задаём фамилию и слоняем её
-     *
-     * @param $case
-     * @return bool|string
-     * @throws \ErrorException
-     */
-    public function lastname($case = Petrovich::CASE_NOMENATIVE) {
+    public function lastname(int $case = Petrovich::CASE_NOMENATIVE): ?string
+    {
         if ($case === Petrovich::CASE_NOMENATIVE) {
             return $this->lastname;
         }
-
-        if (!isset($this->petrovich))
-            $this->petrovich = new Petrovich($this->gender);
-
-        return $this->petrovich->lastname($this->lastname,$case);
+        return $this->petrovichInstance()->lastname($this->lastname ?? '', $case);
     }
 }

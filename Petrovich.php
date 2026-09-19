@@ -1,232 +1,211 @@
 <?php
 
-class Petrovich {
+declare(strict_types=1);
 
-    private $rules; //Правила
+/** Russian name inflection; rule selection follows petrovich-rs. */
+class Petrovich
+{
+    public const CASE_NOMINATIVE = -1;
+    public const CASE_NOMENATIVE = self::CASE_NOMINATIVE; // Legacy spelling.
+    public const CASE_GENITIVE = 0;
+    public const CASE_DATIVE = 1;
+    public const CASE_ACCUSATIVE = 2;
+    public const CASE_INSTRUMENTAL = 3;
+    public const CASE_PREPOSITIONAL = 4;
 
-    const CASE_NOMENATIVE = -1; //именительный
-    const CASE_GENITIVE = 0; //родительный
-    const CASE_DATIVE = 1; //дательный
-    const CASE_ACCUSATIVE = 2; //винительный
-    const CASE_INSTRUMENTAL = 3; //творительный
-    const CASE_PREPOSITIONAL = 4; //предложный
+    public const GENDER_ANDROGYNOUS = 0;
+    public const GENDER_MALE = 1;
+    public const GENDER_FEMALE = 2;
 
-    const GENDER_ANDROGYNOUS = 0; // Пол не определен
-    const GENDER_MALE = 1; // Мужской
-    const GENDER_FEMALE = 2; // Женский
-    
-	private $gender = Petrovich::GENDER_ANDROGYNOUS; //Пол male/мужской female/женский
+    private const GENDERS = ['androgynous' => 0, 'male' => 1, 'female' => 2];
+    private array $rules;
+    private array $genderRules;
+    private int $gender;
 
-    /**
-     * Конструтор класса Петрович
-     * загружаем правила из файла rules.json
-     */
-    function __construct($gender = Petrovich::GENDER_ANDROGYNOUS, $rules_dir = __DIR__) {
-        
-        $rules_path = $rules_dir.'/rules/rules.json';
-        $rules_resourse = fopen($rules_path, 'r');
-
-        if($rules_resourse == false)
-            throw new Exception('Rules file not found.');
-
-        $rules_array = fread($rules_resourse,filesize($rules_path));
-        fclose($rules_resourse);
-
-        $this->rules = get_object_vars(json_decode($rules_array));
-
-        if (isset($gender) && $gender != Petrovich::GENDER_ANDROGYNOUS)
-            $this->gender = $gender;
-    }
-
-    /**
-    * Определяет пол по отчеству
-    * @param $middlename
-    * @return integer
-    * @throws Exception
-    */
-    public function detectGender($middlename)
+    /** Custom directories retain the old <directory>/rules/rules.json layout. */
+    public function __construct(?int $gender = self::GENDER_ANDROGYNOUS, string $rules_dir = __DIR__)
     {
-        if(empty($middlename))
-            throw new Exception('Middlename cannot be empty.');
-	    
-	switch ( mb_substr( mb_strtolower($middlename) , -4))
-        {
-            case 'оглы': return Petrovich::GENDER_MALE; break;
-            case 'кызы': return Petrovich::GENDER_FEMALE; break;
+        if (!extension_loaded('mbstring')) {
+            throw new RuntimeException('Petrovich requires ext-mbstring.');
         }
-
-        switch ( mb_substr( mb_strtolower($middlename) , -2))
-        {
-            case 'ич': return Petrovich::GENDER_MALE; break;
-            case 'на': return Petrovich::GENDER_FEMALE; break;
-            default: return Petrovich::GENDER_ANDROGYNOUS; break;
+        $gender ??= self::GENDER_ANDROGYNOUS;
+        if (!in_array($gender, self::GENDERS, true)) {
+            throw new InvalidArgumentException('Unknown gender.');
         }
-    }
-
-    /**
-     * Задаём имя и слоняем его
-     *
-     * @param $firstname
-     * @param $case
-     * @return bool|string
-     * @throws Exception
-     */
-    public function firstname($firstname, $case = Petrovich::CASE_NOMENATIVE) {
-        if(empty($firstname))
-            throw new Exception('Firstname cannot be empty.');
-
-        if ($case === Petrovich::CASE_NOMENATIVE) {
-            return $firstname;
-        }
-
-        return $this->inflect($firstname,$case,__FUNCTION__);
-    }
-
-    /**
-     * Задём отчество и склоняем его
-     *
-     * @param $middlename
-     * @param $case
-     * @return bool|string
-     * @throws Exception
-     */
-    public function middlename($middlename, $case = Petrovich::CASE_NOMENATIVE) {
-        if(empty($middlename))
-            throw new Exception('Middlename cannot be empty.');
-
-        if ($case === Petrovich::CASE_NOMENATIVE) {
-            return $middlename;
-        }
-
-        return $this->inflect($middlename,$case,__FUNCTION__);
-    }
-
-    /**
-     * Задаём фамилию и слоняем её
-     *
-     * @param $lastname
-     * @param $case
-     * @return bool|string
-     * @throws Exception
-     */
-    public function lastname($lastname, $case = Petrovich::CASE_NOMENATIVE) {
-        if(empty($lastname))
-            throw new Exception('Lastname cannot be empty.');
-
-        if ($case === Petrovich::CASE_NOMENATIVE) {
-            return $lastname;
-        }
-
-        return $this->inflect($lastname,$case,__FUNCTION__);
-    }
-
-    /**
-     * Функция проверяет заданное имя,фамилию или отчество на исключение
-     * и склоняет
-     *
-     * @param $name
-     * @param $case
-     * @param $type
-     * @return bool|string
-     */
-    private function inflect($name,$case,$type) {
-        $names_arr = explode('-',$name);
-        $result = array();
-
-        foreach($names_arr as $arr_name) {
-            if(($exception = $this->checkException($arr_name,$case,$type)) !== false) {
-                $result[] = $exception;
+        $this->gender = $gender;
+        $path = $rules_dir === __DIR__ ? __DIR__ . '/resources/rules.json' : $rules_dir . '/rules/rules.json';
+        $this->rules = self::loadJson($path);
+        foreach (['firstname', 'lastname', 'middlename'] as $type) {
+            if (!isset($this->rules[$type]) || !is_array($this->rules[$type])
+                || !isset($this->rules[$type]['suffixes']) || !is_array($this->rules[$type]['suffixes'])) {
+                throw new UnexpectedValueException("Invalid rules for $type.");
             }
-            else {
-                $result[] = $this->findInRules($arr_name,$case,$type);
-            }
-        }
-        return implode('-',$result);
-    }
-
-    /**
-     * Поиск в массиве правил
-     *
-     * @param $name
-     * @param $case
-     * @param $type
-     * @return string
-     */
-    private function findInRules($name,$case,$type) {
-        foreach($this->rules[$type]->suffixes as $rule) {
-            if ( ! $this->checkGender($rule->gender) )
-                continue;
-            foreach($rule->test as $last_char) {
-                $last_name_char = mb_substr($name,mb_strlen($name)-mb_strlen($last_char),mb_strlen($last_char));
-                if($last_char == $last_name_char) {
-                    if($rule->mods[$case] == '.')
-                        return $name;
-                    return $this->applyRule($rule->mods,$name,$case);
+            foreach (['exceptions', 'suffixes'] as $kind) {
+                $list = $this->rules[$type][$kind] ?? [];
+                if (!is_array($list)) {
+                    throw new UnexpectedValueException("Invalid rule list for $type.");
+                }
+                foreach ($list as $rule) {
+                    if (!is_array($rule) || !isset($rule['gender']) || !is_string($rule['gender'])
+                        || !isset(self::GENDERS[$rule['gender']]) || !isset($rule['test'], $rule['mods'])
+                        || !is_array($rule['test']) || !is_array($rule['mods'])
+                        || array_keys($rule['mods']) !== [0, 1, 2, 3, 4]) {
+                        throw new UnexpectedValueException("Invalid rule for $type.");
+                    }
+                    foreach (array_merge($rule['test'], $rule['mods']) as $value) {
+                        if (!is_string($value)) {
+                            throw new UnexpectedValueException('Rule values must be strings.');
+                        }
+                    }
                 }
             }
         }
-        return $name;
+        $this->genderRules = self::loadJson(__DIR__ . '/resources/gender.json')['gender'];
+        foreach ($this->genderRules as &$heuristic) {
+            $exceptions = $suffixes = [];
+            foreach (self::GENDERS as $key => $value) {
+                foreach ($heuristic['exceptions'][$key] ?? [] as $name) {
+                    $exceptions[$name] = $value;
+                }
+                foreach ($heuristic['suffixes'][$key] ?? [] as $suffix) {
+                    $suffixes[] = [$suffix, $value];
+                }
+            }
+            // PHP 8 sorting is stable: equal lengths preserve rule order.
+            usort($suffixes, static fn(array $a, array $b): int => mb_strlen($b[0], 'UTF-8') <=> mb_strlen($a[0], 'UTF-8'));
+            $heuristic = ['exceptions' => $exceptions, 'suffixes' => $suffixes];
+        }
+        unset($heuristic);
     }
 
-    /**
-     * Проверка на совпадение в исключениях
-     *
-     * @param $name
-     * @param $case
-     * @param $type
-     * @return bool|string
-     */
-    private function checkException($name,$case,$type) {
-        if(!isset($this->rules[$type]->exceptions))
-            return false;
+    private static function loadJson(string $path): array
+    {
+        $json = @file_get_contents($path);
+        if ($json === false) {
+            throw new RuntimeException("Cannot read rules: $path");
+        }
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            throw new UnexpectedValueException("Rules must be an object: $path");
+        }
+        return $data;
+    }
 
-        $lower_name = mb_strtolower($name);
+    public function firstname(string $firstname, int $case = self::CASE_NOMENATIVE): string
+    {
+        return $this->inflect($firstname, $case, 'firstname');
+    }
 
-        foreach($this->rules[$type]->exceptions as $rule) {
-            if ( ! $this->checkGender($rule->gender) )
+    public function lastname(string $lastname, int $case = self::CASE_NOMENATIVE): string
+    {
+        return $this->inflect($lastname, $case, 'lastname');
+    }
+
+    public function middlename(string $middlename, int $case = self::CASE_NOMENATIVE): string
+    {
+        return $this->inflect($middlename, $case, 'middlename');
+    }
+
+    private function inflect(string $name, int $case, string $type): string
+    {
+        if ($case < self::CASE_NOMINATIVE || $case > self::CASE_PREPOSITIONAL) {
+            throw new InvalidArgumentException('Unknown grammatical case.');
+        }
+        if ($name === '') {
+            throw new InvalidArgumentException('Name cannot be empty.');
+        }
+        if ($case === self::CASE_NOMINATIVE) {
+            return $name;
+        }
+        $parts = explode('-', $name);
+        $last = count($parts) - 1;
+        foreach ($parts as $i => &$part) {
+            $lower = mb_strtolower($part, 'UTF-8');
+            $rule = $this->findRule($lower, $type, $this->gender, $i === $last)
+                ?? $this->findRule($lower, $type, self::GENDER_ANDROGYNOUS, false);
+            if ($rule === null || $rule['mods'][$case] === '.') {
                 continue;
-            if(array_search($lower_name,$rule->test) !== false) {
-                if($rule->mods[$case] == '.')
-                    return $name;
-                return $this->applyRule($rule->mods,$name,$case);
+            }
+            $mod = $rule['mods'][$case];
+            $skip = substr_count($mod, '-');
+            $part = mb_substr($part, 0, max(0, mb_strlen($part, 'UTF-8') - $skip), 'UTF-8')
+                . substr($mod, $skip);
+        }
+        unset($part);
+        return implode('-', $parts);
+    }
+
+    private function findRule(string $name, string $type, int $gender, bool $known): ?array
+    {
+        foreach (['exceptions', 'suffixes'] as $kind) {
+            foreach ($this->rules[$type][$kind] ?? [] as $rule) {
+                $ruleGender = self::GENDERS[$rule['gender']];
+                if ($known ? $ruleGender !== $gender : (($ruleGender === self::GENDER_FEMALE) !== ($gender === self::GENDER_FEMALE))) {
+                    continue;
+                }
+                foreach ($rule['test'] as $test) {
+                    if ($kind === 'exceptions' ? $name === $test : str_ends_with($name, $test)) {
+                        return $rule;
+                    }
+                }
             }
         }
-        return false;
+        return null;
     }
 
-    /**
-     * Склоняем заданное слово
-     *
-     * @param $mods
-     * @param $name
-     * @param $case
-     * @return string
-     */
-    private function applyRule($mods,$name,$case) {
-        $result = mb_substr($name,0,mb_strlen($name) - mb_substr_count($mods[$case],'-'));
-        $result .= str_replace('-','',$mods[$case]);
-        return $result;
-    }
-
-    /**
-    * Преобразует строковое обозначение пола в числовое
-    * @param string
-    * @return integer
-    */
-    private function getGender($gender) {
-        switch($gender) {
-            case 'male': return Petrovich::GENDER_MALE; break;
-            case 'female': return Petrovich::GENDER_FEMALE; break;
-            case 'androgynous': return Petrovich::GENDER_ANDROGYNOUS; break;
+    /** Legacy patronymic-only API, including оглы/кызы. */
+    public function detectGender(string $middlename): int
+    {
+        if ($middlename === '') {
+            throw new InvalidArgumentException('Middlename cannot be empty.');
         }
+        $lower = mb_strtolower($middlename, 'UTF-8');
+        if (str_ends_with($lower, 'оглы')) {
+            return self::GENDER_MALE;
+        }
+        if (str_ends_with($lower, 'кызы')) {
+            return self::GENDER_FEMALE;
+        }
+        return $this->detectGenderByName(middlename: $middlename);
     }
 
-    /**
-    * Проверяет переданный пол на соответствие установленному
-    * @param string
-    * @return bool
-    */
-    private function checkGender($gender) {
-        return $this->gender === $this->getGender($gender) || $this->getGender($gender) === Petrovich::GENDER_ANDROGYNOUS;
+    /** Full-name detection, equivalent to petrovich-rs detect_gender. */
+    public function detectGenderByName(?string $lastname = null, ?string $firstname = null, ?string $middlename = null): int
+    {
+        $ln = $this->genderVote($lastname, 'lastname');
+        $fn = $this->genderVote($firstname, 'firstname');
+        $mn = $this->genderVote($middlename, 'middlename');
+        if ($mn !== null && $mn !== self::GENDER_ANDROGYNOUS) {
+            return $mn;
+        }
+        $votes = array_values(array_unique(array_filter([$ln, $fn, $mn], static fn(?int $v): bool => $v !== null)));
+        if (count($votes) > 1) {
+            if ($fn !== null && $fn !== self::GENDER_ANDROGYNOUS && $ln === self::GENDER_ANDROGYNOUS) {
+                return $fn;
+            }
+            if ($ln !== null && $ln !== self::GENDER_ANDROGYNOUS && $fn === self::GENDER_ANDROGYNOUS) {
+                return $ln;
+            }
+        }
+        return count($votes) === 1 ? $votes[0] : self::GENDER_ANDROGYNOUS;
+    }
+
+    private function genderVote(?string $name, string $type): ?int
+    {
+        if ($name === null || $name === '') {
+            return null;
+        }
+        $heuristic = $this->genderRules[$type];
+        $parts = explode('-', mb_strtolower($name, 'UTF-8'));
+        $part = $parts[count($parts) - 1]; // Last hyphen part wins, even if unknown.
+        if (isset($heuristic['exceptions'][$part])) {
+            return $heuristic['exceptions'][$part];
+        }
+        foreach ($heuristic['suffixes'] as [$suffix, $gender]) {
+            if (str_ends_with($part, $suffix)) {
+                return $gender;
+            }
+        }
+        return self::GENDER_ANDROGYNOUS;
     }
 }
